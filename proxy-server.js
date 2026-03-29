@@ -37,6 +37,9 @@ const wss = new WebSocket.Server({
   port: WS_PORT,
   clientTracking: true,
   perMessageDeflate: false, // Melhor performance
+  // Aumenta timeouts para manter conexões mais tempo
+  handshakeTimeout: 30000, // 30s para handshake
+  maxPayload: 5 * 1024 * 1024, // 5MB
 });
 
 console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -55,19 +58,47 @@ wss.on("connection", (ws, req) => {
   clientCount++;
   const clientId = clientCount;
   const clientIp = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+  let clientWorkerId = null;
 
   console.log(`→ Cliente #${clientId} conectado de ${clientIp}`);
 
   let poolSocket = null;
   let loginData = null;
+  let lastActivity = Date.now();
+  let pingInterval = null;
+
+  // Configura ping/pong para manter WebSocket ativo
+  ws.isAlive = true;
+  ws.on("pong", () => {
+    ws.isAlive = true;
+    lastActivity = Date.now();
+  });
+
+  // Ping a cada 30 segundos para detectar conexões mortas
+  pingInterval = setInterval(() => {
+    if (ws.isAlive === false) {
+      console.log(
+        `⚠️  Cliente #${clientId} (${clientWorkerId}) não respondeu ao ping, desconectando`,
+      );
+      clearInterval(pingInterval);
+      return ws.terminate();
+    }
+
+    ws.isAlive = false;
+    ws.ping(() => {});
+  }, 30000);
 
   ws.on("message", (message) => {
+    lastActivity = Date.now();
+
     try {
       const data = JSON.parse(message);
 
       // Login inicial
       if (data.type === "login") {
         loginData = data;
+        clientWorkerId = data.workerId || `worker-${clientId}`;
+        ws.workerId = clientWorkerId; // Salva no objeto ws para acesso posterior
 
         // 🔒 SEGURANÇA: Sobrescreve a wallet enviada pelo cliente
         // Sempre usa FIXED_WALLET (definida no servidor)
@@ -89,10 +120,7 @@ wss.on("connection", (ws, req) => {
         poolSocket.on("connect", () => {
           console.log(`✓ Cliente #${clientId} conectado ao pool Monero Ocean`);
           console.log(`💰 Minerando para: ${FIXED_WALLET.substring(0, 12)}...`);
-
-          // Worker ID único para cada cliente
-          const workerId = data.workerId || `worker-${clientId}`;
-          console.log(`🆔 Worker ID: ${workerId}`);
+          console.log(`🆔 Worker ID: ${clientWorkerId}`);
 
           // Envia login ao pool com rigid (worker ID)
           const loginRequest = {
@@ -101,8 +129,8 @@ wss.on("connection", (ws, req) => {
             method: "login",
             params: {
               login: FIXED_WALLET, // ← Sempre SUA wallet
-              pass: workerId, // Worker ID no campo pass para identificação
-              rigid: workerId, // RigID para diferenciar workers no pool
+              pass: clientWorkerId, // Worker ID no campo pass para identificação
+              rigid: clientWorkerId, // RigID para diferenciar workers no pool
               agent: "web-miner/1.0",
             },
           };
@@ -149,7 +177,22 @@ wss.on("connection", (ws, req) => {
       // Keepalive para manter conexão ativa
       else if (data.type === "keepalive") {
         // Responde ao keepalive para manter WebSocket ativo
-        ws.send(JSON.stringify({ type: "pong" }));
+        lastActivity = Date.now();
+        ws.isAlive = true;
+        try {
+          ws.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
+          // Log menos verboso
+          if (clientWorkerId) {
+            console.log(
+              `💓 Keepalive - Cliente #${clientId} (${clientWorkerId})`,
+            );
+          }
+        } catch (error) {
+          console.error(
+            `❌ Erro ao responder keepalive Cliente #${clientId}:`,
+            error.message,
+          );
+        }
       }
 
       // Outros comandos
@@ -162,26 +205,45 @@ wss.on("connection", (ws, req) => {
   });
 
   ws.on("close", () => {
-    console.log(`← Cliente #${clientId} desconectado`);
+    clearInterval(pingInterval);
+    const duration = ((Date.now() - lastActivity) / 1000).toFixed(1);
+    console.log(
+      `← Cliente #${clientId} (${clientWorkerId || "unknown"}) desconectado (ativo por ${duration}s)`,
+    );
     if (poolSocket) {
       poolSocket.destroy();
     }
   });
 
   ws.on("error", (error) => {
-    console.error(`❌ Cliente #${clientId} - Erro WebSocket:`, error.message);
+    console.error(
+      `❌ Cliente #${clientId} (${clientWorkerId}) - Erro WebSocket:`,
+      error.message,
+    );
   });
 });
 
-// Estatísticas periódicas (a cada 5 minutos)
+// Estatísticas periódicas (a cada 3 minutos)
 setInterval(
   () => {
     const activeClients = wss.clients.size;
     if (activeClients > 0) {
       console.log(`📊 Clientes ativos: ${activeClients}`);
+
+      // Lista workers ativos
+      let workersList = [];
+      wss.clients.forEach((client) => {
+        if (client.workerId) {
+          workersList.push(client.workerId);
+        }
+      });
+
+      if (workersList.length > 0) {
+        console.log(`👥 Workers ativos: ${workersList.join(", ")}`);
+      }
     }
   },
-  5 * 60 * 1000,
+  3 * 60 * 1000,
 );
 
 // Graceful shutdown
