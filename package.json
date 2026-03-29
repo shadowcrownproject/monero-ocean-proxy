@@ -1,0 +1,29 @@
+{
+  "name": "monero-ocean-proxy",
+  "version": "1.0.0",
+  "description": "Proxy WebSocket para mineração de Monero via navegador conectado ao Monero Ocean",
+  "main": "proxy-server.js",
+  "scripts": {
+    "start": "node proxy-server.js",
+    "dev": "nodemon proxy-server.js"
+  },
+  "keywords": [
+    "monero",
+    "mining",
+    "websocket",
+    "proxy",
+    "monero-ocean",
+    "browser-mining"
+  ],
+  "author": "Web Miner Plugin",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
