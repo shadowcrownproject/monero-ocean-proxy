@@ -142,11 +142,30 @@ wss.on("connection", (ws, req) => {
           // Repassa dados do pool para o navegador
           ws.send(poolData.toString());
 
-          // Log de shares aceitas (opcional)
+          // Log de shares aceitas e jobs recebidos
           try {
             const response = JSON.parse(poolData.toString());
+
+            // Share aceita
             if (response.result && response.result.status === "OK") {
-              console.log(`✓ Cliente #${clientId} - Share aceita!`);
+              console.log(
+                `✅ Cliente #${clientId} (${clientWorkerId}) - Share ACEITA pelo pool!`,
+              );
+            }
+
+            // Login bem-sucedido
+            if (response.result && response.result.job) {
+              console.log(
+                `🎯 Cliente #${clientId} (${clientWorkerId}) - Login aceito, job recebido`,
+              );
+              console.log(`   📌 Job ID: ${response.result.job.job_id}`);
+            }
+
+            // Novo job
+            if (response.method === "job" && response.params) {
+              console.log(
+                `🔄 Cliente #${clientId} (${clientWorkerId}) - Novo job: ${response.params.job_id}`,
+              );
             }
           } catch (e) {
             // Ignora erros de parse
