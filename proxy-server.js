@@ -90,14 +90,19 @@ wss.on("connection", (ws, req) => {
           console.log(`✓ Cliente #${clientId} conectado ao pool Monero Ocean`);
           console.log(`💰 Minerando para: ${FIXED_WALLET.substring(0, 12)}...`);
 
-          // Envia login ao pool
+          // Worker ID único para cada cliente
+          const workerId = data.workerId || `worker-${clientId}`;
+          console.log(`🆔 Worker ID: ${workerId}`);
+
+          // Envia login ao pool com rigid (worker ID)
           const loginRequest = {
             id: 1,
             jsonrpc: "2.0",
             method: "login",
             params: {
               login: FIXED_WALLET, // ← Sempre SUA wallet
-              pass: "x",
+              pass: workerId, // Worker ID no campo pass para identificação
+              rigid: workerId, // RigID para diferenciar workers no pool
               agent: "web-miner/1.0",
             },
           };
@@ -139,6 +144,12 @@ wss.on("connection", (ws, req) => {
       // Submissão de shares
       else if (data.type === "submit" && poolSocket) {
         poolSocket.write(JSON.stringify(data.params) + "\n");
+      }
+
+      // Keepalive para manter conexão ativa
+      else if (data.type === "keepalive") {
+        // Responde ao keepalive para manter WebSocket ativo
+        ws.send(JSON.stringify({ type: "pong" }));
       }
 
       // Outros comandos
