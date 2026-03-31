@@ -16,6 +16,7 @@
 const WebSocket = require("ws");
 const net = require("net");
 const crypto = require("crypto");
+const http = require("http");
 
 const MONERO_OCEAN = {
   host: "gulf.moneroocean.stream",
@@ -32,25 +33,63 @@ const FIXED_WALLET =
 const WS_PORT = process.env.PORT || 8181;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
-// Cria servidor WebSocket
-const wss = new WebSocket.Server({
-  port: WS_PORT,
-  clientTracking: true,
-  perMessageDeflate: false, // Melhor performance
-  // Aumenta timeouts para manter conexões mais tempo
-  handshakeTimeout: 30000, // 30s para handshake
-  maxPayload: 5 * 1024 * 1024, // 5MB
+// 🌐 Cria servidor HTTP com CORS
+const server = http.createServer((req, res) => {
+  // *** CORS HEADERS - ACEITA TODAS AS ORIGENS ***
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Max-Age", "86400"); // 24 horas
+
+  // Responde OPTIONS (preflight)
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  // Health check
+  if (req.url === "/health" || req.url === "/") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        status: "ok",
+        service: "Monero Ocean Proxy",
+        pool: `${MONERO_OCEAN.host}:${MONERO_OCEAN.port}`,
+        clients: wss.clients.size,
+        wallet: `${FIXED_WALLET.substring(0, 12)}...`,
+      }),
+    );
+    return;
+  }
+
+  // Outros requests
+  res.writeHead(404);
+  res.end("Use WebSocket connection");
 });
 
-console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-console.log(`✓ Monero Ocean Proxy Server`);
-console.log(`✓ Porta: ${WS_PORT}`);
-console.log(`✓ Pool: ${MONERO_OCEAN.host}:${MONERO_OCEAN.port}`);
-console.log(`✓ Modo: ${IS_PRODUCTION ? "PRODUCTION" : "DEVELOPMENT"}`);
-console.log(
-  `🔒 Wallet: ${FIXED_WALLET.substring(0, 12)}...${FIXED_WALLET.substring(FIXED_WALLET.length - 8)}`,
-);
-console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+// Cria servidor WebSocket sobre o servidor HTTP
+const wss = new WebSocket.Server({
+  server, // ← Usa o servidor HTTP com CORS
+  clientTracking: true,
+  perMessageDeflate: false,
+  handshakeTimeout: 30000,
+  maxPayload: 5 * 1024 * 1024,
+});
+
+// Inicia servidor
+server.listen(WS_PORT, () => {
+  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.log(`✓ Monero Ocean Proxy Server`);
+  console.log(`✓ Porta: ${WS_PORT}`);
+  console.log(`✓ Pool: ${MONERO_OCEAN.host}:${MONERO_OCEAN.port}`);
+  console.log(`✓ Modo: ${IS_PRODUCTION ? "PRODUCTION" : "DEVELOPMENT"}`);
+  console.log(
+    `🔒 Wallet: ${FIXED_WALLET.substring(0, 12)}...${FIXED_WALLET.substring(FIXED_WALLET.length - 8)}`,
+  );
+  console.log(`🌐 CORS: Habilitado para todas as origens`);
+  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+});
 
 let clientCount = 0;
 
