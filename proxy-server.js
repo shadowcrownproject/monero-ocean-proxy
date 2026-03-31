@@ -153,12 +153,26 @@ wss.on("connection", (ws, req) => {
               );
             }
 
+            // Share rejeitada
+            if (response.error) {
+              console.error(
+                `❌ Cliente #${clientId} (${clientWorkerId}) - Share REJEITADA!`,
+              );
+              console.error(
+                `   Erro: ${response.error.message || JSON.stringify(response.error)}`,
+              );
+            }
+
             // Login bem-sucedido
             if (response.result && response.result.job) {
               console.log(
                 `🎯 Cliente #${clientId} (${clientWorkerId}) - Login aceito, job recebido`,
               );
               console.log(`   📌 Job ID: ${response.result.job.job_id}`);
+              console.log(`   🎯 Target: ${response.result.job.target}`);
+              console.log(
+                `   📦 Blob size: ${response.result.job.blob.length} chars`,
+              );
             }
 
             // Novo job
@@ -168,7 +182,12 @@ wss.on("connection", (ws, req) => {
               );
             }
           } catch (e) {
-            // Ignora erros de parse
+            // Ignora erros de parse, mas loga dados brutos se muito curtos
+            if (poolData.length < 200) {
+              console.log(
+                `📨 Pool → Cliente #${clientId}: ${poolData.toString()}`,
+              );
+            }
           }
         });
 
@@ -190,7 +209,11 @@ wss.on("connection", (ws, req) => {
 
       // Submissão de shares
       else if (data.type === "submit" && poolSocket) {
+        // O cliente envia o objeto JSON-RPC completo em data.params
         poolSocket.write(JSON.stringify(data.params) + "\n");
+        console.log(
+          `📤 Cliente #${clientId} (${clientWorkerId}) - Submetendo share para job: ${data.params.params.job_id}`,
+        );
       }
 
       // Keepalive para manter conexão ativa
