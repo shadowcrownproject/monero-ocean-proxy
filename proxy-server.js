@@ -105,6 +105,7 @@ wss.on("connection", (ws, req) => {
   let loginData = null;
   let lastActivity = Date.now();
   let pingInterval = null;
+  let poolKeepAliveInterval = null; // Keepalive para o pool
 
   // Configura ping/pong para manter WebSocket ativo
   ws.isAlive = true;
@@ -120,6 +121,7 @@ wss.on("connection", (ws, req) => {
         `⚠️  Cliente #${clientId} (${clientWorkerId}) não respondeu ao ping, desconectando`,
       );
       clearInterval(pingInterval);
+      if (poolKeepAliveInterval) clearInterval(poolKeepAliveInterval);
       return ws.terminate();
     }
 
@@ -175,6 +177,29 @@ wss.on("connection", (ws, req) => {
           };
 
           poolSocket.write(JSON.stringify(loginRequest) + "\n");
+
+          // ✅ KEEPALIVE PARA O POOL - Previne timeout
+          // Envia keepalived a cada 45s para o pool Monero Ocean
+          poolKeepAliveInterval = setInterval(() => {
+            if (poolSocket && !poolSocket.destroyed) {
+              try {
+                const keepAliveMsg = {
+                  id: Date.now(),
+                  jsonrpc: "2.0",
+                  method: "keepalived",
+                };
+                poolSocket.write(JSON.stringify(keepAliveMsg) + "\n");
+                console.log(
+                  `💓 Keepalive enviado ao pool - Cliente #${clientId} (${clientWorkerId})`,
+                );
+              } catch (error) {
+                console.error(
+                  `❌ Erro ao enviar keepalive ao pool #${clientId}:`,
+                  error.message,
+                );
+              }
+            }
+          }, 45000); // A cada 45 segundos
         });
 
         poolSocket.on("data", (poolData) => {
@@ -242,6 +267,10 @@ wss.on("connection", (ws, req) => {
 
         poolSocket.on("close", () => {
           console.log(`✗ Cliente #${clientId} - Desconectado do pool`);
+          if (poolKeepAliveInterval) {
+            clearInterval(poolKeepAliveInterval);
+            poolKeepAliveInterval = null;
+          }
           ws.close();
         });
       }
@@ -287,6 +316,10 @@ wss.on("connection", (ws, req) => {
 
   ws.on("close", () => {
     clearInterval(pingInterval);
+    if (poolKeepAliveInterval) {
+      clearInterval(poolKeepAliveInterval);
+      poolKeepAliveInterval = null;
+    }
     const duration = ((Date.now() - lastActivity) / 1000).toFixed(1);
     console.log(
       `← Cliente #${clientId} (${clientWorkerId || "unknown"}) desconectado (ativo por ${duration}s)`,
